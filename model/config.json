@@ -1,0 +1,28 @@
+{
+  "model": {
+    "model_path": "models/ltx2.gguv",
+    "model_type": "ltx-video"
+  },
+  "backend": {
+    "type": "auto",
+    "device_id": 0,
+    "use_flash_attention": true,
+    "num_threads": 8
+  },
+  "generation": {
+    "steps": 30,
+    "guidance_scale": 7.5,
+    "sampler": "euler",
+    "fps": 24
+  },
+  "memory": {
+    "vram_size_mb": 0,
+    "available_memory_mb": 0,
+    "offload_threshold_mb": 16000,
+    "use_offload": false
+  },
+  "quantization": {
+    "type": "auto",
+    "block_size": 32
+  }
+}
