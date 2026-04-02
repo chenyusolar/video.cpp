@@ -1,9 +1,10 @@
 # Build script for video.cpp
-# Usage: .\build.ps1
+# Usage: .\build.ps1 [-Release] [-WithCUDA] [-WithVulkan] [-Clean]
 
 param(
     [switch]$Release,
     [switch]$WithCUDA,
+    [switch]$WithVulkan,
     [switch]$Clean
 )
 
@@ -30,9 +31,17 @@ if ($Clean) {
 Write-Host "`n[1/3] Building Rust core..." -ForegroundColor Yellow
 
 $Features = ""
-if ($WithCUDA) {
+if ($WithCUDA -and $WithVulkan) {
+    $Features = "--features cuda,vulkan"
+    Write-Host "Building with CUDA and Vulkan support..." -ForegroundColor Cyan
+} elseif ($WithCUDA) {
     $Features = "--features cuda"
     Write-Host "Building with CUDA support..." -ForegroundColor Cyan
+} elseif ($WithVulkan) {
+    $Features = "--features vulkan"
+    Write-Host "Building with Vulkan support..." -ForegroundColor Cyan
+} else {
+    Write-Host "Building with CPU only (no GPU acceleration)..." -ForegroundColor Yellow
 }
 
 $cargoArgs = @("build")
@@ -84,6 +93,20 @@ Write-Host "`nOutputs:" -ForegroundColor Cyan
 Write-Host "  CLI: $ProjectRoot\bin\video.exe"
 Write-Host "  Core: $ProjectRoot\core\target\release\video_core.dll"
 
+Write-Host "`n[Backend Status]" -ForegroundColor Cyan
+Write-Host "  CPU:  Always available"
+Write-Host "  CUDA: $(if ($WithCUDA) { 'Enabled' } else { 'Disabled (use -WithCUDA to enable)' })"
+Write-Host "  Vulkan: $(if ($WithVulkan) { 'Enabled' } else { 'Disabled (use -WithVulkan to enable)' })"
+
 Write-Host "`nTo run:" -ForegroundColor Yellow
 Write-Host '  $env:VIDEO_MODEL_PATH = "models\ltx-2.3-22b-dev-Q4_K_M.gguf"'
 Write-Host "  .\bin\video.exe -p `"a dragon flying`""
+
+Write-Host "`nFor GPU acceleration:" -ForegroundColor Cyan
+if ($WithCUDA) {
+    Write-Host "  CUDA:  Set `$env:VIDEO_BACKEND = `"cuda`" before running"
+}
+if ($WithVulkan) {
+    Write-Host "  Vulkan: Set `$env:VIDEO_BACKEND = `"vulkan`" before running"
+}
+Write-Host "  Or use: .\bin\video.exe --backend cuda"`

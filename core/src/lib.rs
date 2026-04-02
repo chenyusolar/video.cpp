@@ -86,6 +86,7 @@ pub fn init_logging() {
 }
 
 pub fn run() -> std::result::Result<(), Box<dyn std::error::Error>> {
+    dotenv::dotenv().ok();
     init_logging();
 
     let config = Config::from_env();

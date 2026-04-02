@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::config::Config;
+use crate::encoder::{VideoCodec, VideoEncoder};
 use crate::libcore::context::Context;
 use crate::libcore::tensor::{DType, Device, Tensor, TensorData, TensorShape};
 use crate::libcore::traits::Backend;
@@ -90,7 +91,7 @@ impl VideoPipeline {
             .ok_or_else(|| CoreError::Model("Text encoder not available".into()))?;
 
         let context = text_encoder.encode(&request.prompt)?;
-        let context_neg = if let Some(neg) = &request.negative_prompt {
+        let context_neg = if let Some(ref neg) = request.negative_prompt {
             Some(text_encoder.encode_negative(neg)?)
         } else {
             None
@@ -185,14 +186,21 @@ impl VideoPipeline {
             }
         };
 
-        let mut video_data = Vec::with_capacity(data.len());
+        let num_frames = shape[1] as usize;
+        let height = shape[3];
+        let width = shape[4];
 
+        let encoder = VideoEncoder::new(width, height, fps).with_codec(VideoCodec::H264);
+
+        let mut rgb_data = Vec::with_capacity(data.len());
         for &value in &data {
             let scaled = ((value.clamp(0.0, 1.0) * 255.0) as u8);
-            video_data.push(scaled);
+            rgb_data.push(scaled);
         }
 
-        Ok(video_data)
+        encoder
+            .encode_frames(&rgb_data, num_frames)
+            .map_err(|e| CoreError::Tensor(format!("Video encoding failed: {}", e).into()))
     }
 
     pub fn image_to_video(
@@ -326,9 +334,9 @@ impl VideoPipeline {
     }
 }
 
-pub struct GenerateRequest<'a> {
-    pub prompt: &'a str,
-    pub negative_prompt: Option<&'a str>,
+pub struct GenerateRequest {
+    pub prompt: String,
+    pub negative_prompt: Option<String>,
     pub frames: usize,
     pub width: usize,
     pub height: usize,
@@ -336,14 +344,14 @@ pub struct GenerateRequest<'a> {
     pub steps: Option<u32>,
     pub cfg_scale: Option<f32>,
     pub seed: Option<u64>,
-    pub callback: Option<Box<dyn Fn(usize, usize) + Send + 'a>>,
+    pub callback: Option<Box<dyn Fn(usize, usize) + Send + 'static>>,
 }
 
-impl<'a> Clone for GenerateRequest<'a> {
+impl Clone for GenerateRequest {
     fn clone(&self) -> Self {
         GenerateRequest {
-            prompt: self.prompt,
-            negative_prompt: self.negative_prompt,
+            prompt: self.prompt.clone(),
+            negative_prompt: self.negative_prompt.clone(),
             frames: self.frames,
             width: self.width,
             height: self.height,

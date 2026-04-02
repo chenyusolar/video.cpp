@@ -186,8 +186,8 @@ pub unsafe fn video_generate(
     };
 
     let pipeline_req = GenerateRequest {
-        prompt: &prompt,
-        negative_prompt: negative_prompt.as_deref(),
+        prompt: prompt,
+        negative_prompt: negative_prompt,
         frames: req.frames as usize,
         width: req.width as usize,
         height: req.height as usize,

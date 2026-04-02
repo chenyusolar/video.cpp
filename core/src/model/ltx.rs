@@ -21,16 +21,19 @@ pub struct LTXModel {
 
 impl LTXModel {
     pub fn new(loader: &GGUFVIDLoader) -> CoreResult<Self> {
-        let metadata = loader.metadata();
+        let latent_channels = loader
+            .get_kv("ltx_video.latent_channels")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(16);
 
         let mut model = Self {
             loader: Arc::new(loader.clone()),
             transformer_weights: std::collections::HashMap::new(),
             vae_weights: std::collections::HashMap::new(),
             text_encoder_weights: std::collections::HashMap::new(),
-            latent_channels: metadata.latent_channels,
-            in_channels: metadata.latent_channels * 2,
-            out_channels: metadata.latent_channels,
+            latent_channels,
+            in_channels: latent_channels * 2,
+            out_channels: latent_channels,
         };
 
         model.load_weights()?;

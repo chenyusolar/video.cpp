@@ -1,8 +1,9 @@
 mod ddim;
 mod dpmpp;
 mod euler;
+mod rectified_flow;
 
-use crate::libcore::tensor::{Tensor, TensorData};
+use crate::libcore::tensor::{Tensor, TensorData, TensorShape};
 use crate::libcore::traits::{Result, Scheduler as SchedulerTrait};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -11,6 +12,7 @@ pub enum SchedulerType {
     EulerA,
     DDIM,
     DPMPlusPlus,
+    RectifiedFlow,
 }
 
 pub struct DiffusionScheduler {
@@ -74,6 +76,7 @@ impl DiffusionScheduler {
             "euler_a" | "eulera" => Self::new(SchedulerType::EulerA, num_steps),
             "ddim" => Self::new(SchedulerType::DDIM, num_steps),
             "dpm++" | "dpmpp" => Self::new(SchedulerType::DPMPlusPlus, num_steps),
+            "rectified_flow" | "rf" => Self::new(SchedulerType::RectifiedFlow, num_steps),
             "euler" | _ => Self::new(SchedulerType::Euler, num_steps),
         }
     }
@@ -127,6 +130,13 @@ impl SchedulerTrait for DiffusionScheduler {
             SchedulerType::EulerA => self.euler_a_step(latent, timestep, pred),
             SchedulerType::DDIM => self.ddim_step(latent, timestep, pred),
             SchedulerType::DPMPlusPlus => self.dpmpp_step(latent, timestep, pred),
+            SchedulerType::RectifiedFlow => {
+                let mut rf_scheduler =
+                    crate::scheduler::rectified_flow::RectifiedFlowScheduler::new()
+                        .with_sampler("Uniform");
+                rf_scheduler.set_timesteps(self.num_steps, None);
+                rf_scheduler.step(latent, timestep, pred)
+            }
         }
     }
 
@@ -163,6 +173,7 @@ impl SchedulerTrait for DiffusionScheduler {
                 SchedulerType::EulerA => "euler_a",
                 SchedulerType::DDIM => "ddim",
                 SchedulerType::DPMPlusPlus => "dpm++",
+                SchedulerType::RectifiedFlow => "rectified_flow",
             },
             num_steps,
         );

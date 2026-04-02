@@ -189,12 +189,15 @@ impl GGUFDType {
 impl GGUFFile {
     pub fn load(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let file = std::fs::File::open(path)?;
-        let _metadata = file.metadata()?;
+        let metadata = file.metadata()?;
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
+
+        eprintln!("DEBUG: File opened, size = {}", metadata.len());
 
         let mut reader = std::io::Cursor::new(&mmap);
 
         let magic = Self::read_string(&mut reader, 4)?;
+        eprintln!("DEBUG: Magic = {}", magic);
         if magic != "GGUF" {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -203,8 +206,11 @@ impl GGUFFile {
         }
 
         let version: u32 = Self::read_val(&mut reader)?;
+        eprintln!("DEBUG: Version = {}", version);
         let tensor_count: u64 = Self::read_val(&mut reader)?;
+        eprintln!("DEBUG: Tensor count = {}", tensor_count);
         let metadata_kv_count: u64 = Self::read_val(&mut reader)?;
+        eprintln!("DEBUG: KV count = {}", metadata_kv_count);
 
         let mut general_config = GeneralConfig {
             architecture: String::new(),
@@ -248,8 +254,10 @@ impl GGUFFile {
 
         let mut tensors = Vec::new();
 
-        for _ in 0..metadata_kv_count {
+        for i in 0..metadata_kv_count {
+            eprintln!("DEBUG: Reading KV {} of {}", i, metadata_kv_count);
             let key = Self::read_string_varint(&mut reader)?;
+            eprintln!("DEBUG:   Key = {}", key);
             let value_type: u32 = Self::read_val(&mut reader)?;
 
             match key.as_str() {
@@ -312,39 +320,36 @@ impl GGUFFile {
                         let _: u8 = Self::read_val(&mut reader)?;
                     }
                     1 => {
-                        let _: u8 = Self::read_val(&mut reader)?;
+                        let _: i8 = Self::read_val(&mut reader)?;
                     }
                     2 => {
                         let _: u32 = Self::read_val(&mut reader)?;
                     }
                     3 => {
-                        let _: u64 = Self::read_val(&mut reader)?;
-                    }
-                    4 => {
                         let _: i32 = Self::read_val(&mut reader)?;
                     }
-                    5 => {
-                        let _: i64 = Self::read_val(&mut reader)?;
-                    }
-                    6 => {
+                    4 => {
                         let _: f32 = Self::read_val(&mut reader)?;
                     }
-                    7 => {
-                        let _: f64 = Self::read_val(&mut reader)?;
-                    }
-                    8 => {
+                    5 => {
                         let _: bool = Self::read_val(&mut reader)?;
                     }
-                    9 => {
+                    6 => {
+                        let _: u64 = Self::read_val(&mut reader)?;
+                    }
+                    7 => {
+                        let _: i64 = Self::read_val(&mut reader)?;
+                    }
+                    8 => {
                         let _: std::string::String = Self::read_string_varint(&mut reader)?;
                     }
-                    10 => {
+                    9 => {
                         let _: Vec<u8> = Self::read_array_uint8(&mut reader)?;
                     }
-                    11 => {
+                    10 => {
                         let _: Vec<i32> = Self::read_array_int32(&mut reader)?;
                     }
-                    12 => {
+                    11 => {
                         let _: Vec<u64> = Self::read_array_uint64(&mut reader)?;
                     }
                     _ => {}
@@ -354,17 +359,18 @@ impl GGUFFile {
 
         let tensor_data_offset = reader.position();
 
-        for _ in 0..tensor_count {
-            let name = Self::read_string_varint(&mut reader)?;
+        for i in 0..tensor_count {
+            let name = Self::read_string_tensor(&mut reader)?;
             let n_dims: u32 = Self::read_val(&mut reader)?;
-            let dtype: u32 = Self::read_val(&mut reader)?;
 
             let mut dims = Vec::new();
             for _ in 0..n_dims {
-                dims.push(Self::read_val::<u64>(&mut reader)?);
+                let d: u32 = Self::read_val(&mut reader)?;
+                dims.push(d as u64);
             }
 
             let offset: u64 = Self::read_val(&mut reader)?;
+            let dtype: u32 = Self::read_val(&mut reader)?;
 
             let gguf_dtype = GGUFDType::from_u32(dtype);
             let element_size = gguf_dtype.bytes_per_element();
@@ -378,6 +384,14 @@ impl GGUFFile {
                 offset: tensor_data_offset + offset,
                 size,
             });
+
+            // Align to 32 bytes
+            let current_pos = reader.position() as usize;
+            let aligned_pos = (current_pos + 31) & !31;
+            if aligned_pos > current_pos {
+                use std::io::Seek;
+                reader.seek(std::io::SeekFrom::Start(aligned_pos as u64))?;
+            }
         }
 
         Ok(Self {
@@ -403,6 +417,16 @@ impl GGUFFile {
     }
 
     fn read_string_varint(reader: &mut std::io::Cursor<&Mmap>) -> Result<String, std::io::Error> {
+        let len = Self::read_val::<u64>(reader)? as usize;
+        Self::read_string(reader, len)
+    }
+
+    fn read_string_fixed(reader: &mut std::io::Cursor<&Mmap>) -> Result<String, std::io::Error> {
+        let len = Self::read_val::<u32>(reader)? as usize;
+        Self::read_string(reader, len)
+    }
+
+    fn read_string_tensor(reader: &mut std::io::Cursor<&Mmap>) -> Result<String, std::io::Error> {
         let len = Self::read_val::<u64>(reader)? as usize;
         Self::read_string(reader, len)
     }
