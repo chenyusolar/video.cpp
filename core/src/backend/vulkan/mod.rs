@@ -94,8 +94,8 @@ impl Backend for VulkanBackend {
         let size = shape.volume() as usize;
         let data = match dtype {
             DType::F32 => TensorData::F32(vec![0.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![0.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![0.0_f32; size]),
+            DType::F16 => TensorData::F16(vec![half::f16::ZERO; size]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::ZERO; size]),
             DType::I32 => TensorData::I32(vec![0_i32; size]),
             DType::I64 => TensorData::I64(vec![0_i64; size]),
             DType::U8 => TensorData::U8(vec![0_u8; size]),
@@ -131,7 +131,7 @@ impl Backend for VulkanBackend {
     }
 
     fn randn_like(&self, tensor: &Tensor) -> Result<Tensor> {
-        self.randn(tensor.shape())
+        self.randn(tensor.shape().clone())
     }
 
     fn zeros(&self, shape: TensorShape, dtype: DType) -> Result<Tensor> {
@@ -142,8 +142,8 @@ impl Backend for VulkanBackend {
         let size = shape.volume() as usize;
         let data = match dtype {
             DType::F32 => TensorData::F32(vec![1.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![1.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![1.0_f32; size]),
+            DType::F16 => TensorData::F16(vec![half::f16::from_f32(1.0); size]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::from_f32(1.0); size]),
             DType::I32 => TensorData::I32(vec![1_i32; size]),
             DType::I64 => TensorData::I64(vec![1_i64; size]),
             DType::U8 => TensorData::U8(vec![1_u8; size]),

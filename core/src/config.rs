@@ -61,6 +61,17 @@ pub enum SamplerType {
     DPMPlusPlus,
 }
 
+impl std::fmt::Display for SamplerType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SamplerType::Euler => write!(f, "euler"),
+            SamplerType::EulerA => write!(f, "eulera"),
+            SamplerType::DDIM => write!(f, "ddim"),
+            SamplerType::DPMPlusPlus => write!(f, "dpm++"),
+        }
+    }
+}
+
 impl Default for GenerationConfig {
     fn default() -> Self {
         Self {

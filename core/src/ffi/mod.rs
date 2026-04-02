@@ -1,13 +1,14 @@
 use std::ffi::{CStr, CString};
-use std::path::Path;
 use std::sync::{Arc, Mutex};
+
+pub mod bindings;
+pub mod error;
 
 use crate::config::Config;
 use crate::ffi::bindings::{
-    generate_request, model_handle, tensor_handle, video_backend, video_backend_to_c,
-    video_free as c_video_free, video_generate as c_video_generate,
-    video_get_version as c_video_get_version, video_load as c_video_load, video_output,
-    video_set_backend as c_video_set_backend,
+    generate_request, model_handle, video_backend, video_error, video_free as c_video_free,
+    video_generate as c_video_generate, video_get_version as c_video_get_version,
+    video_load as c_video_load, video_output, video_set_backend as c_video_set_backend,
 };
 use crate::ffi::error::Error as FfiError;
 
@@ -24,9 +25,9 @@ impl VideoEngine {
         let mut handle: model_handle = 0;
 
         let err = unsafe { c_video_load(c_path.as_ptr(), &mut handle) };
-        if err != 0 {
+        if err != video_error::VIDEO_OK {
             return Err(FfiError::LoadError(format!(
-                "Failed to load model: error {}",
+                "Failed to load model: error {:?}",
                 err
             )));
         }
@@ -44,12 +45,13 @@ impl VideoEngine {
             width: 0,
             height: 0,
             fps: 0,
+            generation_time_ms: 0,
         };
 
         let err = unsafe { c_video_generate(self.handle, c_request, &mut c_output) };
-        if err != 0 {
+        if err != video_error::VIDEO_OK {
             return Err(FfiError::GenerateError(format!(
-                "Generation failed: error {}",
+                "Generation failed: error {:?}",
                 err
             )));
         }
@@ -71,9 +73,9 @@ impl VideoEngine {
     pub fn set_backend(backend: BackendType) -> Result<(), FfiError> {
         let c_backend = video_backend_to_c(backend);
         let err = unsafe { c_video_set_backend(c_backend) };
-        if err != 0 {
+        if err != video_error::VIDEO_OK {
             return Err(FfiError::BackendError(format!(
-                "Failed to set backend: error {}",
+                "Failed to set backend: error {:?}",
                 err
             )));
         }
@@ -151,6 +153,7 @@ impl GenerateRequest {
             sampler: sampler.as_ptr(),
             cfg_scale: self.cfg_scale,
             seed: self.seed.unwrap_or(-1),
+            device_id: 0,
         }
     }
 }

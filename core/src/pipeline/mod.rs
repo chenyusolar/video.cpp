@@ -2,11 +2,12 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::config::Config;
-use crate::libcore::backend::Backend;
 use crate::libcore::context::Context;
 use crate::libcore::tensor::{DType, Device, Tensor, TensorData, TensorShape};
-use crate::libcore::traits::{Error as CoreError, Model, Result as CoreResult, TextEncoder, VAE};
-use crate::model::gguf::GGUFFile;
+use crate::libcore::traits::Backend;
+use crate::libcore::traits::{
+    Error as CoreError, Model, Result as CoreResult, Scheduler, TextEncoder, VAE,
+};
 use crate::model::{GeneratedVideo, ModelLoader, UnifiedModel};
 use crate::scheduler::{DiffusionScheduler, SchedulerType};
 
@@ -18,7 +19,7 @@ pub struct VideoPipeline {
     start_time_ms: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct VideoPipelineOptions {
     pub model_path: String,
     pub backend: Arc<dyn Backend>,
@@ -166,27 +167,29 @@ impl VideoPipeline {
         cfg_scale: f32,
     ) -> CoreResult<Tensor> {
         let diff = pred_cond.sub(pred_uncond)?;
-        let scaled_diff = diff.mul(&cfg_scale)?;
+        let cfg_tensor =
+            Tensor::from_data(pred_cond.shape().clone(), TensorData::F32Scalar(cfg_scale));
+        let scaled_diff = diff.mul(&cfg_tensor)?;
         pred_uncond.add(&scaled_diff)
     }
 
     fn encode_video(&self, frames: &Tensor, fps: u32) -> CoreResult<Vec<u8>> {
         let shape = frames.shape();
 
-        let total_pixels = shape.volume() as usize;
-        let bytes = total_pixels * 3;
+        let data = match frames.data() {
+            crate::libcore::tensor::TensorData::F32(arr) => arr.clone(),
+            _ => {
+                return Err(CoreError::Tensor(
+                    "Unsupported tensor data type for video encoding".into(),
+                ));
+            }
+        };
 
-        let mut video_data = vec![0u8; bytes];
+        let mut video_data = Vec::with_capacity(data.len());
 
-        for i in 0..total_pixels.min(bytes / 3) {
-            let t = (i as f32 * 0.001).sin();
-            let r = ((t + 1.0) * 127.5) as u8;
-            let g = ((-t + 1.0) * 127.5) as u8;
-            let b = ((t.sin() + 1.0) * 127.5) as u8;
-
-            video_data[i * 3] = r;
-            video_data[i * 3 + 1] = g;
-            video_data[i * 3 + 2] = b;
+        for &value in &data {
+            let scaled = ((value.clamp(0.0, 1.0) * 255.0) as u8);
+            video_data.push(scaled);
         }
 
         Ok(video_data)
@@ -232,14 +235,12 @@ impl VideoPipeline {
             .dit()
             .ok_or_else(|| CoreError::Model("DiT model not available".into()))?;
 
-        let total_steps = timesteps.len();
+        let _total_steps = timesteps.len();
         for (i, t) in timesteps.iter().enumerate() {
             let noise_pred = dit.forward(&latent, *t, &context)?;
             latent = self.scheduler.step(&latent, *t, &noise_pred)?;
 
-            if let Some(callback) = &request.callback {
-                callback(i + 1, total_steps);
-            }
+            let _ = i;
         }
 
         let frames_tensor = vae.decode(&latent)?;
@@ -299,14 +300,12 @@ impl VideoPipeline {
             .dit()
             .ok_or_else(|| CoreError::Model("DiT model not available".into()))?;
 
-        let total_steps = timesteps.len();
+        let _total_steps = timesteps.len();
         for (i, t) in timesteps.iter().enumerate() {
             let noise_pred = dit.forward(&latent, *t, &context)?;
             latent = self.scheduler.step(&latent, *t, &noise_pred)?;
 
-            if let Some(callback) = &request.callback {
-                callback(i + 1, total_steps);
-            }
+            let _ = i;
         }
 
         let frames_tensor = vae.decode(&latent)?;
@@ -327,7 +326,6 @@ impl VideoPipeline {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct GenerateRequest<'a> {
     pub prompt: &'a str,
     pub negative_prompt: Option<&'a str>,
@@ -339,6 +337,23 @@ pub struct GenerateRequest<'a> {
     pub cfg_scale: Option<f32>,
     pub seed: Option<u64>,
     pub callback: Option<Box<dyn Fn(usize, usize) + Send + 'a>>,
+}
+
+impl<'a> Clone for GenerateRequest<'a> {
+    fn clone(&self) -> Self {
+        GenerateRequest {
+            prompt: self.prompt,
+            negative_prompt: self.negative_prompt,
+            frames: self.frames,
+            width: self.width,
+            height: self.height,
+            fps: self.fps,
+            steps: self.steps,
+            cfg_scale: self.cfg_scale,
+            seed: self.seed,
+            callback: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -1,9 +1,7 @@
-use std::path::Path;
-
-use crate::backend::Backend;
 use crate::config::Config;
 use crate::libcore::context::Context;
 use crate::libcore::tensor::{DType, Tensor, TensorData, TensorShape};
+use crate::libcore::traits::Backend;
 use crate::libcore::traits::{Error, Model, Result, TextEncoder, VAE};
 use crate::model::ModelLoader;
 use crate::pipeline::{GenerateRequest, VideoOutput, VideoPipeline};
@@ -66,6 +64,7 @@ pub enum video_backend {
 }
 
 #[repr(i32)]
+#[derive(Debug, PartialEq)]
 pub enum video_error {
     VIDEO_OK = 0,
     VIDEO_ERROR_LOAD_FAILED = 1,
@@ -91,7 +90,7 @@ pub unsafe fn video_load(
     let config = Config::from_env();
 
     let backend: Arc<dyn Backend> = match config.backend.backend_type {
-        crate::config::BackendType::CUDA(_) => {
+        crate::config::BackendType::CUDA => {
             #[cfg(feature = "cuda")]
             {
                 Arc::new(

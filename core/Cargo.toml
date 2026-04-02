@@ -30,6 +30,7 @@ num_cpus = "1.16"
 anyhow = "1.0"
 bytemuck = "1.16"
 clap = { version = "4.5", features = ["derive"] }
+half = { version = "2.4", features = ["std", "bytemuck"] }
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -103,7 +103,7 @@ impl LTXModel {
 
         let emb = (0..half_dim)
             .map(|i| {
-                let freq = (-std::f32::consts::LOG_SQRT_2 * (i as f32) / (half_dim as f32)).exp();
+                let freq = (-0.34657359_f32 * (i as f32) / (half_dim as f32)).exp();
                 let arg = timestep * freq * std::f32::consts::PI;
                 (arg.sin(), arg.cos())
             })

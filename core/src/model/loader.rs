@@ -48,7 +48,7 @@ impl GGUFVIDLoader {
     pub fn load(path: &std::path::Path) -> Result<Self> {
         let file = std::fs::File::open(path).map_err(|e| Error::Io(e))?;
 
-        let metadata = std::fs::metadata(&file).map_err(|e| Error::Io(e))?;
+        let metadata = file.metadata().map_err(|e| Error::Io(e))?;
 
         let mmap = unsafe { memmap2::Mmap::map(&file).map_err(|e| Error::Io(e))? };
 
@@ -272,7 +272,7 @@ impl GGUFVIDLoader {
             ),
             1 => crate::libcore::tensor::TensorData::F16(
                 data.chunks(2)
-                    .map(|chunk| f16::from_le_bytes([chunk[0], chunk[1]]))
+                    .map(|chunk| half::f16::from_le_bytes([chunk[0], chunk[1]]))
                     .collect(),
             ),
             _ => return Err(Error::Model(format!("Unsupported dtype: {}", info.dtype))),

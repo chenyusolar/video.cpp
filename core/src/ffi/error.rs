@@ -1,5 +1,3 @@
-pub mod error;
-
 use std::fmt;
 
 #[derive(Debug)]

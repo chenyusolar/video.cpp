@@ -1,3 +1,4 @@
+use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::io::{Read, Seek, SeekFrom};
@@ -43,6 +44,21 @@ pub struct TextEncoderConfig {
     pub max_position_embeddings: u32,
     pub num_attention_heads: u32,
     pub num_hidden_layers: u32,
+    pub intermediate_size: u32,
+}
+
+impl Default for TextEncoderConfig {
+    fn default() -> Self {
+        Self {
+            model_type: String::new(),
+            vocab_size: 32000,
+            hidden_size: 256,
+            max_position_embeddings: 512,
+            num_attention_heads: 16,
+            num_hidden_layers: 4,
+            intermediate_size: 1024,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +105,45 @@ pub enum GGUFDType {
     UNKNOWN,
 }
 
+pub trait ReadFromBytes {
+    fn read_from_bytes(reader: &mut std::io::Cursor<&Mmap>) -> Result<Self, std::io::Error>
+    where
+        Self: Sized;
+}
+
+macro_rules! impl_read_from_bytes {
+    ($t:ty) => {
+        impl ReadFromBytes for $t {
+            fn read_from_bytes(
+                reader: &mut std::io::Cursor<&Mmap>,
+            ) -> Result<Self, std::io::Error> {
+                let mut buf = [0u8; std::mem::size_of::<$t>()];
+                reader.read_exact(&mut buf)?;
+                Ok(Self::from_le_bytes(buf))
+            }
+        }
+    };
+}
+
+impl ReadFromBytes for bool {
+    fn read_from_bytes(reader: &mut std::io::Cursor<&Mmap>) -> Result<Self, std::io::Error> {
+        let mut buf = [0u8; 1];
+        reader.read_exact(&mut buf)?;
+        Ok(buf[0] != 0)
+    }
+}
+
+impl_read_from_bytes!(u8);
+impl_read_from_bytes!(u16);
+impl_read_from_bytes!(u32);
+impl_read_from_bytes!(u64);
+impl_read_from_bytes!(i8);
+impl_read_from_bytes!(i16);
+impl_read_from_bytes!(i32);
+impl_read_from_bytes!(i64);
+impl_read_from_bytes!(f32);
+impl_read_from_bytes!(f64);
+
 impl GGUFDType {
     pub fn from_u32(v: u32) -> Self {
         match v {
@@ -134,7 +189,7 @@ impl GGUFDType {
 impl GGUFFile {
     pub fn load(path: &std::path::Path) -> Result<Self, std::io::Error> {
         let file = std::fs::File::open(path)?;
-        let metadata = std::fs::metadata(&file)?;
+        let _metadata = file.metadata()?;
         let mmap = unsafe { memmap2::Mmap::map(&file)? };
 
         let mut reader = std::io::Cursor::new(&mmap);
@@ -181,6 +236,7 @@ impl GGUFFile {
             max_position_embeddings: 0,
             num_attention_heads: 0,
             num_hidden_layers: 0,
+            intermediate_size: 0,
         };
 
         let mut vae_config = VAEConfig {
@@ -351,12 +407,10 @@ impl GGUFFile {
         Self::read_string(reader, len)
     }
 
-    fn read_val<T: bytemuck::FromBytes>(
+    fn read_val<T: ReadFromBytes>(
         reader: &mut std::io::Cursor<&Mmap>,
     ) -> Result<T, std::io::Error> {
-        let mut buf = [0u8; std::mem::size_of::<T>()];
-        reader.read_exact(&mut buf)?;
-        Ok(bytemuck::from_bytes(&buf))
+        T::read_from_bytes(reader)
     }
 
     fn read_array_uint8(reader: &mut std::io::Cursor<&Mmap>) -> Result<Vec<u8>, std::io::Error> {
@@ -399,31 +453,55 @@ impl GGUFFile {
     }
 }
 
-mod bytemuck {
-    pub trait FromBytes: Sized {
-        fn from_bytes(bytes: &[u8]) -> Self;
+impl Default for GGUFConfig {
+    fn default() -> Self {
+        Self {
+            general: GeneralConfig::default(),
+            ltx_video: LTXVideoConfig::default(),
+            text_encoder: TextEncoderConfig::default(),
+            vae: VAEConfig::default(),
+        }
     }
-
-    macro_rules! impl_from_bytes {
-        ($t:ty) => {
-            impl FromBytes for $t {
-                fn from_bytes(bytes: &[u8]) -> Self {
-                    let mut arr = [0u8; std::mem::size_of::<$t>()];
-                    arr.copy_from_slice(&bytes[..std::mem::size_of::<$t>()]);
-                    <$t>::from_le_bytes(arr)
-                }
-            }
-        };
-    }
-
-    impl_from_bytes!(u8);
-    impl_from_bytes!(u32);
-    impl_from_bytes!(u64);
-    impl_from_bytes!(i32);
-    impl_from_bytes!(i64);
-    impl_from_bytes!(f32);
-    impl_from_bytes!(f64);
-    impl_from_bytes!(bool);
 }
 
-use memmap2::Mmap;
+impl Default for GeneralConfig {
+    fn default() -> Self {
+        Self {
+            architecture: String::new(),
+            model_name: String::new(),
+            model_version: String::new(),
+            quantization_version: 0,
+            alignment: 32,
+            tensor_data_offset: 0,
+        }
+    }
+}
+
+impl Default for LTXVideoConfig {
+    fn default() -> Self {
+        Self {
+            latent_channels: 16,
+            in_channels: 16,
+            out_channels: 16,
+            time_embed_dim: 512,
+            transform_layers: 28,
+            num_attention_heads: 16,
+            num_transformer_blocks: 28,
+            frame_rate: 24,
+            latent_height: 64,
+            latent_width: 64,
+            latent_frames: 9,
+        }
+    }
+}
+
+impl Default for VAEConfig {
+    fn default() -> Self {
+        Self {
+            latent_channels: 16,
+            encoder_channels: vec![128, 256, 512, 512],
+            decoder_channels: vec![512, 512, 256, 128],
+            time_compression_factor: 4,
+        }
+    }
+}

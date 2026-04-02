@@ -1,6 +1,3 @@
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Context {
     pub embeddings: super::Tensor,
     pub embeddings_neg: Option<super::Tensor>,
@@ -54,7 +51,6 @@ impl std::fmt::Display for SamplerType {
     }
 }
 
-#[derive(Debug, Clone)]
 pub struct GenerateRequest<'a> {
     pub prompt: &'a str,
     pub negative_prompt: Option<&'a str>,
@@ -66,7 +62,25 @@ pub struct GenerateRequest<'a> {
     pub cfg_scale: Option<f32>,
     pub seed: Option<u64>,
     pub sampler: Option<SamplerType>,
-    pub callback: Option<Box<dyn Fn(usize, usize) + Send + 'a>>,
+    pub callback: Option<fn(usize, usize)>,
+}
+
+impl<'a> Clone for GenerateRequest<'a> {
+    fn clone(&self) -> Self {
+        Self {
+            prompt: self.prompt,
+            negative_prompt: self.negative_prompt,
+            frames: self.frames,
+            width: self.width,
+            height: self.height,
+            fps: self.fps,
+            steps: self.steps,
+            cfg_scale: self.cfg_scale,
+            seed: self.seed,
+            sampler: self.sampler.clone(),
+            callback: self.callback,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

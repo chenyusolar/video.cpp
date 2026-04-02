@@ -41,7 +41,7 @@ impl Backend for CpuBackend {
             }
             _ => return Err(Error::Tensor("Unsupported data types for add".into())),
         };
-        Ok(Tensor::from_data(shape, result_data))
+        Ok(Tensor::from_data(shape.clone(), result_data))
     }
 
     fn tensor_mul(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
@@ -59,7 +59,7 @@ impl Backend for CpuBackend {
             }
             _ => return Err(Error::Tensor("Unsupported data types for mul".into())),
         };
-        Ok(Tensor::from_data(shape, result_data))
+        Ok(Tensor::from_data(shape.clone(), result_data))
     }
 
     fn tensor_matmul(&self, a: &Tensor, b: &Tensor) -> Result<Tensor> {
@@ -285,13 +285,10 @@ impl Backend for CpuBackend {
         ))
     }
 
-    fn temporal_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, t: u32) -> Result<Tensor> {
+    fn temporal_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, _t: u32) -> Result<Tensor> {
         let q_shape = q.shape();
-        let [B, T, H, W, C] = q_shape else {
-            return Err(Error::Tensor(
-                "temporal_attention requires 5D tensor [B,T,H,W,C]".into(),
-            ));
-        };
+        let dims = q_shape.dims();
+        let [B, T, H, W, C] = [dims[0], dims[1], dims[2], dims[3], dims[4]];
 
         let B = B as usize;
         let T = T as usize;
@@ -299,21 +296,21 @@ impl Backend for CpuBackend {
         let W = W as usize;
         let C = C as usize;
 
-        let q_reshaped = self.reshape(q, &[B * H * W, T, C])?;
-        let k_reshaped = self.reshape(k, &[B * H * W, T, C])?;
-        let v_reshaped = self.reshape(v, &[B * H * W, T, C])?;
+        let q_reshaped = q.reshape(&[(B * H * W) as u32, T as u32, C as u32])?;
+        let k_reshaped = k.reshape(&[(B * H * W) as u32, T as u32, C as u32])?;
+        let v_reshaped = v.reshape(&[(B * H * W) as u32, T as u32, C as u32])?;
 
-        self.attention(&q_reshaped, &k_reshaped, &v_reshaped, None)?;
+        let result = self.attention(&q_reshaped, &k_reshaped, &v_reshaped, None)?;
 
-        self.reshape(&q_reshaped, &[B, T, H, W, C])
+        result.reshape(&[B as u32, T as u32, H as u32, W as u32, C as u32])
     }
 
     fn alloc_tensor(&self, shape: TensorShape, dtype: DType) -> Result<Tensor> {
         let size = shape.volume() as usize;
         let data = match dtype {
             DType::F32 => TensorData::F32(vec![0.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![0.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![0.0_f32; size]),
+            DType::F16 => TensorData::F16(vec![half::f16::ZERO; size]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::ZERO; size]),
             DType::I32 => TensorData::I32(vec![0_i32; size]),
             DType::I64 => TensorData::I64(vec![0_i64; size]),
             DType::U8 => TensorData::U8(vec![0_u8; size]),
@@ -349,7 +346,7 @@ impl Backend for CpuBackend {
             .map(|_| {
                 let u1: f32 = rng.gen();
                 let u2: f32 = rng.gen();
-                let normal = (-2.0 * u1.ln()).sqrt() * (2.0 * std::pi * u2).cos();
+                let normal = (-2.0 * u1.ln()).sqrt() * (2.0 * std::f32::consts::PI * u2).cos();
                 normal
             })
             .collect();
@@ -358,15 +355,15 @@ impl Backend for CpuBackend {
     }
 
     fn randn_like(&self, tensor: &Tensor) -> Result<Tensor> {
-        self.randn(tensor.shape())
+        self.randn(tensor.shape().clone())
     }
 
     fn zeros(&self, shape: TensorShape, dtype: DType) -> Result<Tensor> {
         let size = shape.volume() as usize;
         let data = match dtype {
             DType::F32 => TensorData::F32(vec![0.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![0.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![0.0_f32; size]),
+            DType::F16 => TensorData::F16(vec![half::f16::ZERO; size]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::ZERO; size]),
             DType::I32 => TensorData::I32(vec![0_i32; size]),
             DType::I64 => TensorData::I64(vec![0_i64; size]),
             DType::U8 => TensorData::U8(vec![0_u8; size]),
@@ -378,8 +375,8 @@ impl Backend for CpuBackend {
         let size = shape.volume() as usize;
         let data = match dtype {
             DType::F32 => TensorData::F32(vec![1.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![1.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![1.0_f32; size]),
+            DType::F16 => TensorData::F16(vec![half::f16::from_f32(1.0); size]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::from_f32(1.0); size]),
             DType::I32 => TensorData::I32(vec![1_i32; size]),
             DType::I64 => TensorData::I64(vec![1_i64; size]),
             DType::U8 => TensorData::U8(vec![1_u8; size]),

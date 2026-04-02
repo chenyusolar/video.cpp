@@ -12,12 +12,13 @@ pub struct VideoVAE {
 
 impl VideoVAE {
     pub fn new(gguf: Arc<GGUFFile>) -> Self {
-        let config = &gguf.config.vae;
+        let latent_channels = gguf.config.vae.latent_channels;
+        let time_compression_factor = gguf.config.vae.time_compression_factor;
         Self {
             gguf,
             weights: std::sync::RwLock::new(std::collections::HashMap::new()),
-            latent_channels: config.latent_channels,
-            time_compression_factor: config.time_compression_factor,
+            latent_channels,
+            time_compression_factor,
         }
     }
 
@@ -39,7 +40,7 @@ impl VideoVAE {
                         .collect()
                 } else {
                     data.chunks(2)
-                        .map(|chunk| f16::from_le_bytes([chunk[0], chunk[1]]).to_f32())
+                        .map(|chunk| half::f16::from_le_bytes([chunk[0], chunk[1]]).to_f32())
                         .collect()
                 };
 

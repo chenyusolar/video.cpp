@@ -63,7 +63,8 @@ impl Backend for CudaBackend {
             }
             _ => return Err(Error::Tensor("Unsupported types for add".into())),
         };
-        self.update_memory(shape.volume() as u64 * 4);
+        let vol: u64 = shape.iter().map(|&x| x as u64).product();
+        self.update_memory(vol * 4);
         Ok(Tensor::from_data(TensorShape::new(shape), data))
     }
 
@@ -86,7 +87,8 @@ impl Backend for CudaBackend {
             }
             _ => return Err(Error::Tensor("Unsupported types for mul".into())),
         };
-        self.update_memory(shape.volume() as u64 * 4);
+        let vol: u64 = shape.iter().map(|&x| x as u64).product();
+        self.update_memory(vol * 4);
         Ok(Tensor::from_data(TensorShape::new(shape), data))
     }
 
@@ -321,7 +323,7 @@ impl Backend for CudaBackend {
         ))
     }
 
-    fn temporal_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, t: u32) -> Result<Tensor> {
+    fn temporal_attention(&self, q: &Tensor, k: &Tensor, v: &Tensor, _t: u32) -> Result<Tensor> {
         let q_shape = q.shape();
         let [B, T, H, W, C] = [q_shape[0], q_shape[1], q_shape[2], q_shape[3], q_shape[4]];
 
@@ -331,26 +333,26 @@ impl Backend for CudaBackend {
         let W = W as usize;
         let C = C as usize;
 
-        let q_reshaped = q.reshape(&[B * H * W, T, C])?;
-        let k_reshaped = k.reshape(&[B * H * W, T, C])?;
-        let v_reshaped = v.reshape(&[B * H * W, T, C])?;
+        let q_reshaped = q.reshape(&[(B * H * W) as u32, T as u32, C as u32])?;
+        let k_reshaped = k.reshape(&[(B * H * W) as u32, T as u32, C as u32])?;
+        let v_reshaped = v.reshape(&[(B * H * W) as u32, T as u32, C as u32])?;
 
         let result = self.attention(&q_reshaped, &k_reshaped, &v_reshaped, None)?;
 
-        result.reshape(&[B, T, H, W, C])
+        result.reshape(&[B as u32, T as u32, H as u32, W as u32, C as u32])
     }
 
     fn alloc_tensor(&self, shape: TensorShape, dtype: DType) -> Result<Tensor> {
-        let size = shape.volume() as usize;
+        let size: u64 = shape.as_slice().iter().map(|&x| x as u64).product();
         let data = match dtype {
-            DType::F32 => TensorData::F32(vec![0.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![0.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![0.0_f32; size]),
-            DType::I32 => TensorData::I32(vec![0_i32; size]),
-            DType::I64 => TensorData::I64(vec![0_i64; size]),
-            DType::U8 => TensorData::U8(vec![0_u8; size]),
+            DType::F32 => TensorData::F32(vec![0.0_f32; size as usize]),
+            DType::F16 => TensorData::F16(vec![half::f16::ZERO; size as usize]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::ZERO; size as usize]),
+            DType::I32 => TensorData::I32(vec![0_i32; size as usize]),
+            DType::I64 => TensorData::I64(vec![0_i64; size as usize]),
+            DType::U8 => TensorData::U8(vec![0_u8; size as usize]),
         };
-        self.update_memory(size * dtype.size_of());
+        self.update_memory(size * dtype.size_of() as u64);
         Ok(Tensor::from_data(shape, data))
     }
 
@@ -375,10 +377,10 @@ impl Backend for CudaBackend {
     fn randn(&self, shape: TensorShape) -> Result<Tensor> {
         use rand::prelude::*;
 
-        let size = shape.volume() as usize;
+        let size: u64 = shape.as_slice().iter().map(|&x| x as u64).product();
         let mut rng = rand::thread_rng();
 
-        let data: Vec<f32> = (0..size)
+        let data: Vec<f32> = (0..size as usize)
             .map(|_| {
                 let u1: f32 = rng.gen();
                 let u2: f32 = rng.gen();
@@ -391,7 +393,7 @@ impl Backend for CudaBackend {
     }
 
     fn randn_like(&self, tensor: &Tensor) -> Result<Tensor> {
-        self.randn(tensor.shape())
+        self.randn(tensor.shape().clone())
     }
 
     fn zeros(&self, shape: TensorShape, dtype: DType) -> Result<Tensor> {
@@ -399,16 +401,16 @@ impl Backend for CudaBackend {
     }
 
     fn ones(&self, shape: TensorShape, dtype: DType) -> Result<Tensor> {
-        let size = shape.volume() as usize;
+        let size: u64 = shape.as_slice().iter().map(|&x| x as u64).product();
         let data = match dtype {
-            DType::F32 => TensorData::F32(vec![1.0_f32; size]),
-            DType::F16 => TensorData::F16(vec![1.0_f16; size]),
-            DType::BF16 => TensorData::BF16(vec![1.0_f32; size]),
-            DType::I32 => TensorData::I32(vec![1_i32; size]),
-            DType::I64 => TensorData::I64(vec![1_i64; size]),
-            DType::U8 => TensorData::U8(vec![1_u8; size]),
+            DType::F32 => TensorData::F32(vec![1.0_f32; size as usize]),
+            DType::F16 => TensorData::F16(vec![half::f16::ONE; size as usize]),
+            DType::BF16 => TensorData::BF16(vec![half::bf16::ONE; size as usize]),
+            DType::I32 => TensorData::I32(vec![1_i32; size as usize]),
+            DType::I64 => TensorData::I64(vec![1_i64; size as usize]),
+            DType::U8 => TensorData::U8(vec![1_u8; size as usize]),
         };
-        self.update_memory(size * dtype.size_of());
+        self.update_memory(size * dtype.size_of() as u64);
         Ok(Tensor::from_data(shape, data))
     }
 

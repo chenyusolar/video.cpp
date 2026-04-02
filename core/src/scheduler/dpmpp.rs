@@ -1,4 +1,4 @@
-use crate::libcore::tensor::Tensor;
+use crate::libcore::tensor::{Tensor, TensorData};
 use crate::libcore::traits::Result;
 
 use super::DiffusionScheduler;
@@ -53,10 +53,17 @@ impl DiffusionScheduler {
             -2.0 * sigma_t
         };
 
+        let sigma_t_tensor =
+            Tensor::from_data(latent.shape().clone(), TensorData::F32Scalar(sigma_t));
+        let alpha_sqrt_tensor = Tensor::from_data(
+            latent.shape().clone(),
+            TensorData::F32Scalar(alpha_cumprod_t.sqrt()),
+        );
+
         let pred_x0 = if sigma_t > 0.0 && alpha_cumprod_t > 0.0 {
             latent
-                .sub(&pred.mul(&sigma_t)?)?
-                .div(&alpha_cumprod_t.sqrt())?
+                .sub(&pred.mul(&sigma_t_tensor)?)?
+                .div(&alpha_sqrt_tensor)?
         } else {
             pred.clone()
         };
@@ -64,7 +71,12 @@ impl DiffusionScheduler {
         let sigma_s_to_t = sigma_s * (-h).exp();
         let sigma_t_to_s = sigma_t * (h).exp();
 
-        let direction = pred.mul(&sigma_t_to_s)?;
-        pred_x0.mul(&sigma_s_to_t)?.add(&direction)
+        let sigma_s_to_t_tensor =
+            Tensor::from_data(latent.shape().clone(), TensorData::F32Scalar(sigma_s_to_t));
+        let sigma_t_to_s_tensor =
+            Tensor::from_data(latent.shape().clone(), TensorData::F32Scalar(sigma_t_to_s));
+
+        let direction = pred.mul(&sigma_t_to_s_tensor)?;
+        pred_x0.mul(&sigma_s_to_t_tensor)?.add(&direction)
     }
 }

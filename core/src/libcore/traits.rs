@@ -1,5 +1,6 @@
 use crate::libcore::context::{Context, SamplerType};
 use crate::libcore::tensor::{DType, Device, Tensor, TensorShape};
+use std::sync::Arc;
 use thiserror::Error;
 
 pub use crate::libcore::context::{GenerateRequest, GenerationStats, VideoOutput};
@@ -82,7 +83,7 @@ pub trait Backend: Send + Sync {
         &self,
         input: &Tensor,
         weight: &Tensor,
-        opts: super::libcore::tensor::Conv2dOpts,
+        opts: super::tensor::Conv2dOpts,
     ) -> Result<Tensor>;
 
     fn attention(
@@ -128,48 +129,6 @@ impl BackendType {
             "cuda:1" => BackendType::CUDA(1),
             "vulkan" | "vulkancompute" => BackendType::Vulkan,
             "cpu" | _ => BackendType::CPU,
-        }
-    }
-}
-
-pub fn create_backend(backend: BackendType) -> std::sync::Arc<dyn Backend> {
-    match backend {
-        BackendType::CUDA(_) => {
-            // Try CUDA backend if available
-            #[cfg(feature = "cuda")]
-            {
-                return std::sync::Arc::new(
-                    super::backend::cuda::CudaBackend::new().unwrap_or_else(|e| {
-                        tracing::warn!("CUDA not available: {}, falling back to CPU", e);
-                        super::backend::cpu::CpuBackend::new() as Arc<dyn Backend>
-                    }),
-                );
-            }
-            #[cfg(not(feature = "cuda"))]
-            {
-                tracing::warn!("CUDA support not compiled in, using CPU backend");
-                std::sync::Arc::new(super::backend::cpu::CpuBackend::new()) as Arc<dyn Backend>
-            }
-        }
-        BackendType::Vulkan => {
-            // Try Vulkan backend if available
-            #[cfg(feature = "vulkan")]
-            {
-                return std::sync::Arc::new(
-                    super::backend::vulkan::VulkanBackend::new().unwrap_or_else(|e| {
-                        tracing::warn!("Vulkan not available: {}, falling back to CPU", e);
-                        super::backend::cpu::CpuBackend::new() as Arc<dyn Backend>
-                    }),
-                );
-            }
-            #[cfg(not(feature = "vulkan"))]
-            {
-                tracing::warn!("Vulkan support not compiled in, using CPU backend");
-                std::sync::Arc::new(super::backend::cpu::CpuBackend::new()) as Arc<dyn Backend>
-            }
-        }
-        BackendType::CPU => {
-            std::sync::Arc::new(super::backend::cpu::CpuBackend::new()) as Arc<dyn Backend>
         }
     }
 }

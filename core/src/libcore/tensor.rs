@@ -1,5 +1,7 @@
+use half::{bf16, f16};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use std::ops::Index;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum DType {
@@ -24,7 +26,7 @@ impl fmt::Display for DType {
     }
 }
 
-#[derive(Debug, Clone, Clone)]
+#[derive(Debug, Clone)]
 pub struct TensorShape {
     dims: Vec<u32>,
 }
@@ -57,6 +59,22 @@ impl TensorShape {
     pub fn reshape(&self, dims: Vec<u32>) -> Self {
         Self { dims }
     }
+
+    pub fn as_slice(&self) -> &[u32] {
+        &self.dims
+    }
+
+    pub fn to_vec(&self) -> Vec<u32> {
+        self.dims.clone()
+    }
+}
+
+impl Index<usize> for TensorShape {
+    type Output = u32;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.dims[index]
+    }
 }
 
 impl fmt::Display for TensorShape {
@@ -77,8 +95,8 @@ impl fmt::Display for TensorShape {
 pub enum TensorData {
     F32(Vec<f32>),
     F32Scalar(f32),
-    F16(Vec<f16>),
-    BF16(Vec<f32>),
+    F16(Vec<half::f16>),
+    BF16(Vec<half::bf16>),
     I32(Vec<i32>),
     I64(Vec<i64>),
     U8(Vec<u8>),

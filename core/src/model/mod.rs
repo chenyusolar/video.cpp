@@ -18,6 +18,7 @@ use std::sync::Arc;
 use crate::libcore::context::Context;
 use crate::libcore::tensor::Tensor;
 use crate::libcore::traits::{Error as CoreError, Model, Result as CoreResult, TextEncoder, VAE};
+use rand::SeedableRng;
 
 pub struct ModelLoader {
     gguf: Arc<GGUFFile>,
@@ -65,9 +66,6 @@ impl ModelLoader {
         }
 
         self.text_encoder = Some(Arc::new(GemmaTextEncoder::new(self.gguf.clone())));
-        if let Err(e) = self.text_encoder.as_ref().unwrap().load_weights() {
-            tracing::warn!("Could not load text encoder weights: {}", e);
-        }
 
         Ok(())
     }
