@@ -30,10 +30,13 @@ pub struct ModelLoader {
 
 impl ModelLoader {
     pub fn from_gguf(path: &Path) -> CoreResult<Self> {
+        eprintln!("DEBUG: from_gguf() start");
         let gguf = GGUFFile::load(path)
             .map_err(|e| CoreError::Model(format!("Failed to load GGUF: {}", e)))?;
+        eprintln!("DEBUG: from_gguf() GGUFFile loaded, creating Arc");
 
         let gguf = Arc::new(gguf);
+        eprintln!("DEBUG: from_gguf() Arc created, creating loader");
 
         let mut loader = Self {
             gguf: gguf.clone(),
@@ -49,12 +52,15 @@ impl ModelLoader {
     }
 
     fn load_models(&mut self) -> CoreResult<()> {
+        eprintln!("DEBUG: load_models() starting");
         self.dit = Some(Arc::new(LTXDiT::new(self.gguf.clone())));
+        eprintln!("DEBUG: LTXDiT created");
         self.dit
             .as_ref()
             .unwrap()
             .load_weights()
             .map_err(|e| CoreError::Model(format!("Failed to load DiT weights: {}", e)))?;
+        eprintln!("DEBUG: DiT weights loaded");
 
         self.video_vae = Some(Arc::new(VideoVAE::new(self.gguf.clone())));
         if let Err(e) = self.video_vae.as_ref().unwrap().load_weights() {

@@ -1,4 +1,10 @@
+#!/usr/bin/env python3
 import struct
+
+
+def read_string_varint(f):
+    length = struct.unpack("<Q", f.read(8))[0]
+    return f.read(length).decode("utf-8", errors="replace")
 
 
 def align(pos, alignment=32):
@@ -6,72 +12,120 @@ def align(pos, alignment=32):
 
 
 with open(r"E:\vllm-project\video.cpp\models\ltx-2.3-22b-dev-Q4_K_M.gguf", "rb") as f:
-    header = f.read(24)
-    tensor_count = struct.unpack("<Q", header[8:16])[0]
-    kv_count = struct.unpack("<Q", header[16:24])[0]
+    # Read header
+    magic = f.read(4)
+    print(f"Magic: {magic}")
 
-    print(f"Tensors: {tensor_count}, KV: {kv_count}")
+    version = struct.unpack("<I", f.read(4))[0]
+    print(f"Version: {version}")
+
+    tensor_count = struct.unpack("<Q", f.read(8))[0]
+    print(f"Tensor count: {tensor_count}")
+
+    metadata_kv_count = struct.unpack("<Q", f.read(8))[0]
+    print(f"Metadata KV count: {metadata_kv_count}")
+
+    print(f"\nAfter header, position = {f.tell()}")
 
     # Read KV metadata
-    for i in range(kv_count):
-        key_len = struct.unpack("<Q", f.read(8))[0]
-        f.read(key_len)
+    for i in range(metadata_kv_count):
+        key = read_string_varint(f)
         val_type = struct.unpack("<I", f.read(4))[0]
 
-        if val_type == 8:
-            val_len = struct.unpack("<Q", f.read(8))[0]
-            f.read(val_len)
-        elif val_type == 4:
-            f.read(4)
-        elif val_type == 2:
-            f.read(4)
+        if val_type == 8:  # string
+            val = read_string_varint(f)
+        elif val_type == 4:  # uint
+            val = struct.unpack("<I", f.read(4))[0]
+        elif val_type == 6:  # u64
+            val = struct.unpack("<Q", f.read(8))[0]
+        elif val_type == 7:  # i64
+            val = struct.unpack("<q", f.read(8))[0]
+        elif val_type == 11:  # array uint32
+            arr_len = struct.unpack("<Q", f.read(8))[0]
+            val = list(struct.unpack(f"<{arr_len}I", f.read(arr_len * 4)))
         else:
-            f.read(8)
+            val = f"type={val_type}"
 
-    print(f"After KV, position = {f.tell()}")
+        print(f"  KV {i}: {key} = {val}")
 
-    # Try different alignments to find correct one
-    print("\nTensor 0 at pos 4927:")
-    f.seek(4927)
+    tensor_data_offset = f.tell()
+    print(f"\nTensor data offset (calculated): {tensor_data_offset}")
 
-    # Tensor 0 - using u64 for name_len
-    name_len = struct.unpack("<Q", f.read(8))[0]
-    name = f.read(name_len).decode("utf-8", errors="replace")
-    n_dims = struct.unpack("<I", f.read(4))[0]
-    dims = [struct.unpack("<I", f.read(4))[0] for _ in range(n_dims)]
-    dtype = struct.unpack("<I", f.read(4))[0]
-    offset = struct.unpack("<Q", f.read(8))[0]
-    print(f'  Using u64 for name_len: name_len={name_len}, name="{name}", dims={dims}')
-
-    # After tensor 0 header
-    pos_after = f.tell()
-    print(f"  Position after tensor 0 header: {pos_after}, aligned: {align(pos_after)}")
-
-    # Read tensor 1 at aligned position
-    f.seek(align(pos_after))
-    print(f"\nTensor 1 at pos {f.tell()}:")
-
-    name_len_raw = f.read(8)
-    name_len = struct.unpack("<Q", name_len_raw)[0]
-    print(f"  Raw bytes: {name_len_raw.hex()}, as u64: {name_len}")
-
-    # If name_len looks wrong, try u32
-    if name_len > 1000 or name_len == 0:
-        f.seek(align(pos_after))
-        name_len = struct.unpack("<I", f.read(4))[0]
-        print(f"  Using u32 for name_len: {name_len}")
-        name = f.read(name_len).decode("utf-8", errors="replace")
+    # Now read first few tensors
+    print("\n--- Reading first 5 tensors ---")
+    for i in range(min(5, tensor_count)):
+        name = read_string_varint(f)
         n_dims = struct.unpack("<I", f.read(4))[0]
         dims = [struct.unpack("<I", f.read(4))[0] for _ in range(n_dims)]
-        dtype = struct.unpack("<I", f.read(4))[0]
         offset = struct.unpack("<Q", f.read(8))[0]
-        print(f'  name="{name}", dims={dims}, dtype={dtype}')
-    else:
-        name = f.read(name_len).decode("utf-8", errors="replace")
+        dtype = struct.unpack("<I", f.read(4))[0]
+
+        dtype_names = {
+            0: "F32",
+            1: "F16",
+            2: "BF16",
+            3: "Q4_0",
+            4: "Q4_1",
+            5: "Q5_0",
+            6: "Q5_1",
+            7: "Q8_0",
+            8: "Q2_K",
+            9: "Q3_K",
+            10: "Q4_K",
+            11: "Q5_K",
+            12: "Q6_K",
+            13: "Q8_K",
+        }
+        dtype_name = dtype_names.get(dtype, f"UNKNOWN({dtype})")
+
+        num_elements = 1
+        for d in dims:
+            num_elements *= d
+
+        print(f"\nTensor {i}:")
+        print(f"  name: {name}")
+        print(f"  n_dims: {n_dims}, dims: {dims}")
+        print(f"  num_elements: {num_elements}")
+        print(f"  dtype: {dtype} ({dtype_name})")
+        print(f"  offset (raw from file): {offset}")
+
+        # Current position after reading header
+        pos_after = f.tell()
+        aligned_pos = align(pos_after)
+        print(f"  position after header: {pos_after}, aligned: {aligned_pos}")
+
+        # Seek to aligned position for next tensor
+        f.seek(aligned_pos)
+
+    # Go back to tensor_data_offset and verify data
+    f.seek(tensor_data_offset)
+    first_bytes = f.read(32)
+    print(f"\n\nData at tensor_data_offset ({tensor_data_offset}):")
+    print(f"  First 32 bytes: {first_bytes.hex()}")
+
+    # Check a specific tensor at an offset
+    if tensor_count > 1:
+        # Read second tensor metadata properly
+        f.seek(aligned_pos)
+        name = read_string_varint(f)
         n_dims = struct.unpack("<I", f.read(4))[0]
         dims = [struct.unpack("<I", f.read(4))[0] for _ in range(n_dims)]
-        dtype = struct.unpack("<I", f.read(4))[0]
         offset = struct.unpack("<Q", f.read(8))[0]
-        print(f'  name="{name}", dims={dims}, dtype={dtype}')
+        dtype = struct.unpack("<I", f.read(4))[0]
 
-    print(f"\nFinal position: {f.tell()}")
+        print(f"\n\nTensor 2 (at aligned pos {aligned_pos}):")
+        print(f"  name: {name}")
+        print(f"  dims: {dims}")
+        print(f"  offset: {offset}")
+        print(f"  dtype: {dtype}")
+
+        # Try to read data at this offset
+        if offset > 0 and offset < 14326857120:
+            f.seek(offset)
+            data_bytes = f.read(min(32, 14326857120 - offset))
+            print(f"  Data at offset {offset}: {data_bytes.hex()[:64]}...")
+        else:
+            print(f"  Offset {offset} is out of bounds (file size: 14326857120)")
+
+    file_size = f.seek(0, 2)
+    print(f"\n\nFile size: {file_size} bytes")

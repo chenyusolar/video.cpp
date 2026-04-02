@@ -1,43 +1,12 @@
 package main
 
-/*
-#cgo LDFLAGS:-L${SRCDIR}/../core/target/release -lvideo_core
-#include <stdlib.h>
-#include "../include/video.h"
-#include <stdint.h>
-#include <stdbool.h>
-
-typedef struct {
-    const char* prompt;
-    const char* negative_prompt;
-    int32_t frames;
-    int32_t width;
-    int32_t height;
-    int32_t fps;
-    int32_t steps;
-    const char* sampler;
-    float cfg_scale;
-    int64_t seed;
-    int32_t device_id;
-} GoGenerateRequest;
-
-typedef struct {
-    uint8_t* data;
-    size_t size;
-    int32_t width;
-    int32_t height;
-    int32_t fps;
-    int64_t generation_time_ms;
-} GoVideoOutput;
-*/
-import "C"
-
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
-	"unsafe"
+	"strings"
 )
 
 func main() {
@@ -53,7 +22,6 @@ func main() {
 	sampler := getArgOr("--sampler", "", "euler")
 	cfgStr := getArgOr("--cfg", "", "7.5")
 	seedStr := getArgOr("--seed", "", "-1")
-	backend := getArgOr("--backend", "", "auto")
 	verbose := hasArg("-v", "--verbose")
 
 	if hasArg("-h", "--help") {
@@ -75,9 +43,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	cfg, _ := strconv.ParseFloat(cfgStr, 32)
-	seed, _ := strconv.ParseInt(seedStr, 10, 64)
-
 	if verbose {
 		fmt.Printf("video.cpp CLI - Local Video Generation Engine\n")
 		fmt.Printf("=============================================\n")
@@ -94,121 +59,105 @@ func main() {
 		fmt.Printf("Sampler:   %s\n", sampler)
 		fmt.Printf("CFG:       %s\n", cfgStr)
 		fmt.Printf("Seed:      %s\n", seedStr)
-		fmt.Printf("Backend:   %s\n", backend)
 		fmt.Println()
 	}
 
-	// Check if model file exists
 	if _, err := os.Stat(modelPath); os.IsNotExist(err) {
 		fmt.Fprintf(os.Stderr, "Error: Model file not found: %s\n", modelPath)
 		fmt.Fprintf(os.Stderr, "Set VIDEO_MODEL_PATH environment variable or use -m option\n")
 		os.Exit(1)
 	}
 
-	// Get absolute path for model
-	absModelPath, err := filepath.Abs(modelPath)
-	if err != nil {
-		absModelPath = modelPath
-	}
-
-	// Set backend
-	if backend != "auto" {
-		os.Setenv("VIDEO_BACKEND", backend)
-	}
-
-	fmt.Printf("Loading model: %s\n", absModelPath)
-
-	// Load the model
-	cModelPath := C.CString(absModelPath)
-	defer C.free(unsafe.Pointer(cModelPath))
-
-	var handle C.model_handle
-	result := C.video_load(cModelPath, &handle)
-
-	if result != 0 {
-		fmt.Fprintf(os.Stderr, "Error: Failed to load model (error code: %d)\n", result)
-		fmt.Fprintf(os.Stderr, "Make sure the Rust core library is built:\n")
-		fmt.Fprintf(os.Stderr, "  cd core && cargo build --release\n")
+	// Find Rust binary
+	rustBin := findRustBinary()
+	if rustBin == "" {
+		fmt.Fprintf(os.Stderr, "Error: Rust binary not found\n")
+		fmt.Fprintf(os.Stderr, "Build with: cd core && cargo build --release\n")
 		os.Exit(1)
 	}
 
-	defer C.video_free(handle)
+	fmt.Printf("Loading model: %s\n", modelPath)
 
-	fmt.Printf("Model loaded successfully!\n")
-	fmt.Printf("Starting video generation...\n\n")
+	// Build arguments for Rust binary
+	rustArgs := []string{
+		"-m", modelPath,
+		"-p", prompt,
+		"-o", outputPath,
+		"-f", strconv.Itoa(frames),
+		"-W", strconv.Itoa(width),
+		"-H", strconv.Itoa(height),
+		"--fps", strconv.Itoa(fps),
+		"--steps", strconv.Itoa(steps),
+		"--sampler", sampler,
+		"--cfg", cfgStr,
+	}
 
-	// Create generate request
-	cPrompt := C.CString(prompt)
-	defer C.free(unsafe.Pointer(cPrompt))
+	// Only add seed if it's not the default (empty string means use default/random)
+	if seedStr != "" && seedStr != "-1" {
+		rustArgs = append(rustArgs, "--seed", seedStr)
+	}
 
-	var cNegPrompt *C.char
 	if negativePrompt != "" {
-		cNegPrompt = C.CString(negativePrompt)
-		defer C.free(unsafe.Pointer(cNegPrompt))
+		rustArgs = append(rustArgs, "-n", negativePrompt)
 	}
 
-	cSampler := C.CString(sampler)
-	defer C.free(unsafe.Pointer(cSampler))
-
-	req := C.GoGenerateRequest{
-		prompt:          cPrompt,
-		negative_prompt: cNegPrompt,
-		frames:          C.int(frames),
-		width:           C.int(width),
-		height:          C.int(height),
-		fps:             C.int(fps),
-		steps:           C.int(steps),
-		sampler:         cSampler,
-		cfg_scale:       C.float(float32(cfg)),
-		seed:            C.long(seed),
-		device_id:       C.int(0),
+	if verbose {
+		rustArgs = append(rustArgs, "-v")
 	}
 
-	var output C.GoVideoOutput
+	cmd := exec.Command(rustBin, rustArgs...)
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Stdin = os.Stdin
 
-	result = C.video_generate(handle, req, &output)
-
-	if result != 0 {
-		fmt.Fprintf(os.Stderr, "Error: Generation failed (error code: %d)\n", result)
+	err := cmd.Run()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Error: Generation failed: %v\n", err)
 		os.Exit(1)
 	}
+}
 
-	// Copy output data to Go
-	videoData := C.GoBytes(unsafe.Pointer(output.data), C.size_t(output.size))
-	C.free(unsafe.Pointer(output.data))
+func findRustBinary() string {
+	// Check common locations
+	paths := []string{
+		"core/target/release/video.exe",
+		"core/target/debug/video.exe",
+		"../core/target/release/video.exe",
+		"../core/target/debug/video.exe",
+	}
 
-	fmt.Printf("\nGeneration complete!\n")
-	fmt.Printf("  Resolution: %dx%d\n", output.width, output.height)
-	fmt.Printf("  FPS: %d\n", output.fps)
-	fmt.Printf("  Frames: %d bytes\n", output.size)
-	fmt.Printf("  Time: %dms\n", output.generation_time_ms)
+	// Check if we're in the project root
+	exe, err := os.Executable()
+	if err == nil {
+		dir := filepath.Dir(exe)
+		paths = append(paths, filepath.Join(dir, "core/target/release/video.exe"))
+		paths = append(paths, filepath.Join(dir, "core/target/debug/video.exe"))
+	}
 
-	// Write output file
-	fmt.Printf("\nWriting video to: %s\n", outputPath)
-
-	// Determine format from extension
-	ext := strings.ToLower(filepath.Ext(outputPath))
-	switch ext {
-	case ".mp4":
-		// For now, write raw bytes - in future, encode with ffmpeg
-		if err := os.WriteFile(outputPath, videoData, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
-			os.Exit(1)
-		}
-	case ".rgb", ".raw":
-		if err := os.WriteFile(outputPath, videoData, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
-			os.Exit(1)
-		}
-	default:
-		// Try to detect format or default to raw
-		if err := os.WriteFile(outputPath, videoData, 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "Error writing output: %v\n", err)
-			os.Exit(1)
+	for _, p := range paths {
+		if _, err := os.Stat(p); err == nil {
+			return p
 		}
 	}
 
-	fmt.Printf("Video saved successfully!\n")
+	// Try to find via cargo
+	cmd := exec.Command("cargo", "locate-project", "--manifest-path", "core/Cargo.toml")
+	output, err := cmd.Output()
+	if err == nil {
+		// Parse output to get project directory
+		lines := strings.Split(string(output), "\n")
+		for _, line := range lines {
+			if strings.Contains(line, "Cargo.toml") {
+				dir := filepath.Dir(line)
+				testPath := filepath.Join(dir, "target/release/video.exe")
+				if _, err := os.Stat(testPath); err == nil {
+					return testPath
+				}
+			}
+		}
+	}
+
+	return ""
 }
 
 func getEnvOr(key, defaultVal string) string {
@@ -267,16 +216,16 @@ Options:
   -n, --negative <text>   Negative prompt (optional)
   -o, --output <path>      Output video path (default: output.mp4)
   -f, --frames <n>         Number of frames (default: 24)
-  -W, --width <n>         Width (default: 512)
-  -H, --height <n>        Height (default: 512)
-  --fps <n>               FPS (default: 24)
+  -W, --width <n>          Width (default: 512)
+  -H, --height <n>         Height (default: 512)
+  --fps <n>                FPS (default: 24)
   --steps <n>             Diffusion steps (default: 30)
-  --sampler <name>        Sampler: euler, ddim, dpm++, rectified_flow (default: euler)
+  --sampler <name>         Sampler: euler, ddim, dpm++, rectified_flow (default: euler)
   --cfg <f>               CFG scale (default: 7.5)
   --seed <n>              Random seed (-1 for random)
-  --backend <name>         Backend: auto, cpu, cuda, vulkan (default: auto)
+  --backend <name>        Backend: auto, cpu, cuda, vulkan (default: auto)
   -v, --verbose            Verbose output
-  -h, --help               Show this help
+  -h, --help              Show this help
 
 Environment Variables:
   VIDEO_MODEL_PATH         Default model path
@@ -290,6 +239,5 @@ Examples:
 
 Build from source:
   cd core && cargo build --release
-  cd cli && go build -o ../bin/video .
 `)
 }

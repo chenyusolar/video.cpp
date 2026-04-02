@@ -13,6 +13,7 @@ pub struct LTXDiT {
 
 impl LTXDiT {
     pub fn new(gguf: Arc<GGUFFile>) -> Self {
+        eprintln!("DEBUG: LTXDiT::new() called");
         Self {
             gguf,
             weights: std::sync::RwLock::new(HashMap::new()),
@@ -20,14 +21,31 @@ impl LTXDiT {
     }
 
     pub fn load_weights(&self) -> Result<()> {
-        for tensor_meta in self.gguf.list_tensors() {
+        eprintln!(
+            "DEBUG: Starting load_weights, total tensors: {}",
+            self.gguf.list_tensors().len()
+        );
+
+        for (idx, tensor_meta) in self.gguf.list_tensors().iter().enumerate() {
             if tensor_meta.name.starts_with("model.diffusion_model.")
                 || tensor_meta.name.starts_with("diffusion_model.")
                 || tensor_meta.name.contains("transformer")
             {
+                eprintln!(
+                    "DEBUG: Loading tensor {}: name={}, dims={:?}, dtype={:?}, size={}, offset={}",
+                    idx,
+                    tensor_meta.name,
+                    tensor_meta.dims,
+                    tensor_meta.dtype,
+                    tensor_meta.size,
+                    tensor_meta.offset
+                );
+
                 let data = self.gguf.load_tensor_data(tensor_meta).map_err(|e| {
                     Error::Model(format!("Failed to load tensor {}: {}", tensor_meta.name, e))
                 })?;
+
+                eprintln!("DEBUG: Tensor {} loaded, data.len()={}", idx, data.len());
 
                 let shape: Vec<u32> = tensor_meta.dims.iter().map(|&d| d as u32).collect();
                 let tensor = match tensor_meta.dtype {

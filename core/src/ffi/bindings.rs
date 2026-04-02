@@ -75,7 +75,8 @@ pub enum video_error {
     VIDEO_ERROR_UNSUPPORTED = 6,
 }
 
-pub unsafe fn video_load(
+#[no_mangle]
+pub unsafe extern "C" fn video_load(
     model_path: *const std::os::raw::c_char,
     out_handle: *mut model_handle,
 ) -> video_error {
@@ -126,14 +127,16 @@ pub unsafe fn video_load(
     video_error::VIDEO_OK
 }
 
-pub unsafe fn video_free(handle: model_handle) -> video_error {
+#[no_mangle]
+pub unsafe extern "C" fn video_free(handle: model_handle) -> video_error {
     let registry = get_registry();
     registry.remove(&handle);
     tracing::info!("Freed model handle: {}", handle);
     video_error::VIDEO_OK
 }
 
-pub unsafe fn video_generate(
+#[no_mangle]
+pub unsafe extern "C" fn video_generate(
     handle: model_handle,
     req: generate_request,
     out: *mut video_output,
@@ -236,7 +239,8 @@ pub unsafe fn video_generate(
     }
 }
 
-pub unsafe fn video_set_backend(backend: video_backend) -> video_error {
+#[no_mangle]
+pub unsafe extern "C" fn video_set_backend(backend: video_backend) -> video_error {
     match backend {
         video_backend::VIDEO_BACKEND_CPU => {
             std::env::set_var("VIDEO_BACKEND", "cpu");
@@ -251,11 +255,13 @@ pub unsafe fn video_set_backend(backend: video_backend) -> video_error {
     video_error::VIDEO_OK
 }
 
-pub fn video_get_version() -> *const std::os::raw::c_char {
+#[no_mangle]
+pub extern "C" fn video_get_version() -> *const std::os::raw::c_char {
     b"video.cpp 0.1.0\0".as_ptr() as *const std::os::raw::c_char
 }
 
-pub unsafe fn video_get_memory_info(
+#[no_mangle]
+pub unsafe extern "C" fn video_get_memory_info(
     allocated_bytes: *mut i64,
     reserved_bytes: *mut i64,
 ) -> video_error {
@@ -269,7 +275,8 @@ pub unsafe fn video_get_memory_info(
     video_error::VIDEO_OK
 }
 
-pub unsafe fn video_generate_image_to_video(
+#[no_mangle]
+pub unsafe extern "C" fn video_generate_image_to_video(
     handle: model_handle,
     init_image: *const u8,
     image_size: usize,
@@ -346,7 +353,8 @@ pub unsafe fn video_generate_image_to_video(
     }
 }
 
-pub unsafe fn video_generate_video_to_video(
+#[no_mangle]
+pub unsafe extern "C" fn video_generate_video_to_video(
     handle: model_handle,
     init_video: *const u8,
     video_size: usize,
