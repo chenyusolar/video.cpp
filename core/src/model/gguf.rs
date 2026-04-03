@@ -184,6 +184,62 @@ impl GGUFDType {
             GGUFDType::UNKNOWN => 4,
         }
     }
+
+    fn calculate_tensor_size(dtype: &GGUFDType, num_elements: u64) -> u64 {
+        if num_elements == 0 {
+            return 0;
+        }
+        match dtype {
+            GGUFDType::F32 => num_elements * 4,
+            GGUFDType::F16 => num_elements * 2,
+            GGUFDType::BF16 => num_elements * 2,
+            GGUFDType::Q4_0 => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 16 + 32)
+            }
+            GGUFDType::Q4_1 => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 16 + 2 + 32)
+            }
+            GGUFDType::Q5_0 => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 4 + 16 + 32)
+            }
+            GGUFDType::Q5_1 => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 4 + 16 + 2 + 32)
+            }
+            GGUFDType::Q8_0 => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 32 + 32)
+            }
+            GGUFDType::Q2_K => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (256 / 16 + 256 / 4 + 2 + 2)
+            }
+            GGUFDType::Q3_K => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (256 / 8 + 256 / 4 + 12 + 2)
+            }
+            GGUFDType::Q4_K => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 2 + 12 + 256 / 2)
+            }
+            GGUFDType::Q5_K => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (2 + 2 + 12 + 256 / 2 + 256 / 8)
+            }
+            GGUFDType::Q6_K => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (256 / 2 + 256 / 4 + 256 / 16 + 2)
+            }
+            GGUFDType::Q8_K => {
+                let blocks = (num_elements + 255) / 256;
+                blocks * (4 + 4 + 12 + 256)
+            }
+            GGUFDType::UNKNOWN => num_elements * 4,
+        }
+    }
 }
 
 impl GGUFFile {
@@ -237,12 +293,12 @@ impl GGUFFile {
 
         let mut text_config = TextEncoderConfig {
             model_type: String::new(),
-            vocab_size: 0,
-            hidden_size: 0,
-            max_position_embeddings: 0,
-            num_attention_heads: 0,
-            num_hidden_layers: 0,
-            intermediate_size: 0,
+            vocab_size: 256000,
+            hidden_size: 4096,
+            max_position_embeddings: 512,
+            num_attention_heads: 16,
+            num_hidden_layers: 32,
+            intermediate_size: 16384,
         };
 
         let mut vae_config = VAEConfig {
@@ -255,10 +311,16 @@ impl GGUFFile {
         let mut tensors = Vec::new();
 
         for i in 0..metadata_kv_count {
-            eprintln!("DEBUG: Reading KV {} of {}", i, metadata_kv_count);
+            eprintln!(
+                "DEBUG: Reading KV {} of {}, pos={}",
+                i,
+                metadata_kv_count,
+                reader.position()
+            );
             let key = Self::read_string_varint(&mut reader)?;
             eprintln!("DEBUG:   Key = {}", key);
             let value_type: u32 = Self::read_val(&mut reader)?;
+            eprintln!("DEBUG:   value_type = {}", value_type);
 
             match key.as_str() {
                 "general.architecture" => {
@@ -315,6 +377,10 @@ impl GGUFFile {
                 "general.alignment" => {
                     general_config.alignment = Self::read_val(&mut reader)?;
                 }
+                "config" => {
+                    let config_len: u64 = Self::read_val(&mut reader)?;
+                    reader.seek(std::io::SeekFrom::Current(config_len as i64))?;
+                }
                 _ => match value_type {
                     0 => {
                         let _: u8 = Self::read_val(&mut reader)?;
@@ -323,33 +389,88 @@ impl GGUFFile {
                         let _: i8 = Self::read_val(&mut reader)?;
                     }
                     2 => {
-                        let _: u32 = Self::read_val(&mut reader)?;
+                        let _: u16 = Self::read_val(&mut reader)?;
                     }
                     3 => {
-                        let _: i32 = Self::read_val(&mut reader)?;
+                        let _: i16 = Self::read_val(&mut reader)?;
                     }
                     4 => {
-                        let _: f32 = Self::read_val(&mut reader)?;
+                        let _: u32 = Self::read_val(&mut reader)?;
                     }
                     5 => {
-                        let _: bool = Self::read_val(&mut reader)?;
+                        let _: i32 = Self::read_val(&mut reader)?;
                     }
                     6 => {
-                        let _: u64 = Self::read_val(&mut reader)?;
+                        let _: f32 = Self::read_val(&mut reader)?;
                     }
                     7 => {
-                        let _: i64 = Self::read_val(&mut reader)?;
+                        let _: bool = Self::read_val(&mut reader)?;
                     }
                     8 => {
-                        let _: std::string::String = Self::read_string_varint(&mut reader)?;
+                        let _: u64 = Self::read_val(&mut reader)?;
                     }
                     9 => {
-                        let _: Vec<u8> = Self::read_array_uint8(&mut reader)?;
+                        let _: i64 = Self::read_val(&mut reader)?;
                     }
                     10 => {
-                        let _: Vec<i32> = Self::read_array_int32(&mut reader)?;
+                        let _: f64 = Self::read_val(&mut reader)?;
                     }
                     11 => {
+                        let _: std::string::String = Self::read_string_varint(&mut reader)?;
+                    }
+                    12 => {
+                        let len: u64 = Self::read_val(&mut reader)?;
+                        for _ in 0..len {
+                            let vt: u32 = Self::read_val(&mut reader)?;
+                            match vt {
+                                0 => {
+                                    let _: u8 = Self::read_val(&mut reader)?;
+                                }
+                                1 => {
+                                    let _: i8 = Self::read_val(&mut reader)?;
+                                }
+                                2 => {
+                                    let _: u16 = Self::read_val(&mut reader)?;
+                                }
+                                3 => {
+                                    let _: i16 = Self::read_val(&mut reader)?;
+                                }
+                                4 => {
+                                    let _: u32 = Self::read_val(&mut reader)?;
+                                }
+                                5 => {
+                                    let _: i32 = Self::read_val(&mut reader)?;
+                                }
+                                6 => {
+                                    let _: f32 = Self::read_val(&mut reader)?;
+                                }
+                                7 => {
+                                    let _: bool = Self::read_val(&mut reader)?;
+                                }
+                                8 => {
+                                    let _: u64 = Self::read_val(&mut reader)?;
+                                }
+                                9 => {
+                                    let _: i64 = Self::read_val(&mut reader)?;
+                                }
+                                10 => {
+                                    let _: f64 = Self::read_val(&mut reader)?;
+                                }
+                                11 => {
+                                    let _: std::string::String =
+                                        Self::read_string_varint(&mut reader)?;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    13 => {
+                        let _: Vec<u8> = Self::read_array_uint8(&mut reader)?;
+                    }
+                    14 => {
+                        let _: Vec<i32> = Self::read_array_int32(&mut reader)?;
+                    }
+                    15 => {
                         let _: Vec<u64> = Self::read_array_uint64(&mut reader)?;
                     }
                     _ => {}
@@ -358,83 +479,47 @@ impl GGUFFile {
         }
 
         let tensor_data_offset = reader.position();
-        general_config.tensor_data_offset = tensor_data_offset;
         eprintln!("DEBUG: tensor_data_offset = {}", tensor_data_offset);
 
         for i in 0..tensor_count {
-            eprintln!("DEBUG: Loop iteration {}", i);
+            eprintln!("DEBUG: Reading tensor {}, pos={}", i, reader.position());
             let name = Self::read_string_tensor(&mut reader)?;
-            eprintln!("DEBUG: Read name: {}", name);
+            eprintln!("DEBUG: Tensor {} name = {}", i, name);
             let n_dims: u32 = Self::read_val(&mut reader)?;
-            eprintln!("DEBUG: Read n_dims: {}", n_dims);
 
             let mut dims = Vec::new();
             for _ in 0..n_dims {
                 let d: u32 = Self::read_val(&mut reader)?;
                 dims.push(d as u64);
             }
-            eprintln!("DEBUG: Read dims: {:?}", dims);
 
-            let raw_offset: u64 = Self::read_val(&mut reader)?;
             let dtype: u32 = Self::read_val(&mut reader)?;
-            eprintln!("DEBUG: Read dtype: {}", dtype);
+
+            // Skip 4 bytes of padding after dtype
+            reader.seek(std::io::SeekFrom::Current(4))?;
+
+            let offset: u64 = Self::read_val(&mut reader)?;
+
+            // Skip 4 bytes of padding after offset only for tensors with n_dims > 1
+            if n_dims > 1 {
+                reader.seek(std::io::SeekFrom::Current(4))?;
+            }
 
             let gguf_dtype = GGUFDType::from_u32(dtype);
             let num_elements: u64 = dims.iter().product();
-            eprintln!("DEBUG: num_elements = {}", num_elements);
-
-            let size = Self::calculate_tensor_size(&gguf_dtype, num_elements);
-            eprintln!("DEBUG: calculated size = {}", size);
-
-            let actual_file_offset = tensor_data_offset + raw_offset;
-
-            if tensors.len() <= 5 || tensors.len() % 500 == 0 || num_elements == 0 {
-                eprintln!(
-                    "DEBUG: Tensor {} ({}) dtype={:?} ({}) dims={:?} num_elements={} raw_offset={} actual_offset={} size={}",
-                    tensors.len() + 1,
-                    name,
-                    gguf_dtype,
-                    dtype,
-                    dims,
-                    num_elements,
-                    raw_offset,
-                    actual_file_offset,
-                    size
-                );
-            }
+            let size = GGUFDType::calculate_tensor_size(&gguf_dtype, num_elements);
 
             if num_elements > 0 {
                 tensors.push(TensorMetadata {
-                    name: name.clone(),
-                    dims: dims.clone(),
+                    name,
+                    dims,
                     dtype: gguf_dtype,
-                    offset: actual_file_offset,
+                    offset: tensor_data_offset + offset,
                     size,
                 });
             }
-
-            let current_pos = reader.position() as usize;
-            let aligned_pos = (current_pos + 31) & !31;
-            eprintln!("DEBUG: Alignment: current_pos={}, aligned_pos={}", current_pos, aligned_pos);
-            if aligned_pos > current_pos {
-                use std::io::Seek;
-                reader.seek(std::io::SeekFrom::Start(aligned_pos as u64))?;
-            }
-            eprintln!("DEBUG: Loop iteration {} done, tensors.len()={}", i, tensors.len());
-        }
-            eprintln!(
-                "DEBUG: Loop iteration {} done, tensors.len()={}",
-                i,
-                tensors.len()
-            );
         }
 
-        eprintln!(
-            "DEBUG: Loaded {} tensors (skipped zero-element tensors)",
-            tensors.len()
-        );
-
-        eprintln!("DEBUG: Creating GGUFFile struct...");
         Ok(Self {
             config: GGUFConfig {
                 general: general_config,
@@ -446,62 +531,6 @@ impl GGUFFile {
             file,
             mmap,
         })
-    }
-
-    fn calculate_tensor_size(dtype: &GGUFDType, num_elements: u64) -> u64 {
-        if num_elements == 0 {
-            return 0;
-        }
-        match dtype {
-            GGUFDType::F32 => num_elements * 4,
-            GGUFDType::F16 => num_elements * 2,
-            GGUFDType::BF16 => num_elements * 2,
-            GGUFDType::Q4_0 => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 16 + 32)
-            }
-            GGUFDType::Q4_1 => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 16 + 2 + 32)
-            }
-            GGUFDType::Q5_0 => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 4 + 16 + 32)
-            }
-            GGUFDType::Q5_1 => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 4 + 16 + 2 + 32)
-            }
-            GGUFDType::Q8_0 => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 32 + 32)
-            }
-            GGUFDType::Q2_K => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (256 / 16 + 256 / 4 + 2 + 2)
-            }
-            GGUFDType::Q3_K => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (256 / 8 + 256 / 4 + 12 + 2)
-            }
-            GGUFDType::Q4_K => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 2 + 12 + 256 / 2)
-            }
-            GGUFDType::Q5_K => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (2 + 2 + 12 + 256 / 2 + 256 / 8)
-            }
-            GGUFDType::Q6_K => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (256 / 2 + 256 / 4 + 256 / 16 + 2)
-            }
-            GGUFDType::Q8_K => {
-                let blocks = (num_elements + 255) / 256;
-                blocks * (4 + 4 + 12 + 256)
-            }
-            GGUFDType::UNKNOWN => num_elements * 4,
-        }
     }
 
     fn read_string(
@@ -570,46 +599,7 @@ impl GGUFFile {
     pub fn load_tensor_data(&self, tensor: &TensorMetadata) -> Result<Vec<u8>, std::io::Error> {
         let offset = tensor.offset as usize;
         let size = tensor.size as usize;
-
-        eprintln!(
-            "DEBUG: load_tensor_data '{}': offset={}, size={}, file_len={}",
-            tensor.name,
-            offset,
-            size,
-            self.mmap.len()
-        );
-
-        if size == 0 {
-            eprintln!("DEBUG: Skipping zero-size tensor '{}'", tensor.name);
-            return Ok(Vec::new());
-        }
-
-        if size > 100_000_000 {
-            eprintln!(
-                "DEBUG: Loading large tensor '{}': shape={:?}, dtype={:?}, size={}",
-                tensor.name, tensor.dims, tensor.dtype, size
-            );
-        }
-
-        if offset >= self.mmap.len() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::UnexpectedEof,
-                format!(
-                    "Tensor {} offset {} >= file_len {}",
-                    tensor.name,
-                    offset,
-                    self.mmap.len()
-                ),
-            ));
-        }
-
-        let actual_size = size.min(self.mmap.len() - offset);
-
-        eprintln!(
-            "DEBUG: Allocating Vec<u8> with {} elements for tensor '{}'",
-            actual_size, tensor.name
-        );
-        Ok(self.mmap[offset..offset + actual_size].to_vec())
+        Ok(self.mmap[offset..offset + size].to_vec())
     }
 }
 

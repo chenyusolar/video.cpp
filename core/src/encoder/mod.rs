@@ -1,5 +1,6 @@
 use std::io::Write;
 use std::path::Path;
+use std::process::Command;
 
 pub struct VideoEncoder {
     width: u32,
@@ -99,7 +100,9 @@ impl VideoEncoder {
         let height = self.height.to_string();
         let fps = self.fps.to_string();
 
-        let ffmpeg_result = Command::new("ffmpeg")
+        let ffmpeg_cmd = Self::find_ffmpeg();
+
+        let ffmpeg_result = Command::new(&ffmpeg_cmd)
             .args(&[
                 "-f",
                 "rawvideo",
@@ -122,6 +125,7 @@ impl VideoEncoder {
                 "-y",
                 output_file.to_str().unwrap(),
             ])
+            .stderr(Stdio::piped())
             .output();
 
         let _ = std::fs::remove_file(&input_file);
@@ -153,6 +157,24 @@ impl VideoEncoder {
                 self.encode_raw_rgb(frames, num_frames)
             }
         }
+    }
+
+    fn find_ffmpeg() -> String {
+        if let Ok(path) = std::env::var("FFMPEG_PATH") {
+            return path;
+        }
+        let candidates = [
+            "ffmpeg",
+            "E:\\vllm-project\\video.cpp\\ffmpeg\\ffmpeg-8.1-essentials_build\\bin\\ffmpeg.exe",
+            "C:\\ffmpeg\\bin\\ffmpeg.exe",
+            "C:\\Program Files\\ffmpeg\\bin\\ffmpeg.exe",
+        ];
+        for candidate in &candidates {
+            if Command::new(candidate).arg("-version").output().is_ok() {
+                return candidate.to_string();
+            }
+        }
+        "ffmpeg".to_string()
     }
 
     fn create_bmp_header(&self, num_frames: usize) -> Vec<u8> {

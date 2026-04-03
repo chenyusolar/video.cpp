@@ -1,0 +1,46 @@
+﻿[2m2026-04-03T00:38:25.878784Z[0m [32m INFO[0m [2mvideo[0m[2m:[0m video.cpp v0.1.0
+[2m2026-04-03T00:38:25.878802Z[0m [32m INFO[0m [2mvideo[0m[2m:[0m Model: E:\vllm-project\video.cpp\models\ltx-2.3-22b-dev-Q4_K_M.gguf
+[2m2026-04-03T00:38:25.878806Z[0m [32m INFO[0m [2mvideo[0m[2m:[0m Prompt: A cat
+E:\vllm-project\video.cpp\core\target\release\video.exe : DEBUG: from_gguf() start
+所在位置 行:1 字符: 87
++ ... _K_M.gguf"; E:\vllm-project\video.cpp\core\target\release\video.exe - ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (DEBUG: from_gguf() start:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+DEBUG: File opened, size = 14326857120
+DEBUG: Magic = GGUF
+DEBUG: Version = 3
+DEBUG: Tensor count = 4444
+DEBUG: KV count = 4
+DEBUG: Reading KV 0 of 4, pos=24
+DEBUG:   Key = general.architecture
+DEBUG:   value_type = 8
+DEBUG:   value_type = 8
+DEBUG: Reading KV 1 of 4, pos=68
+DEBUG:   Key = general.quantization_version
+DEBUG:   value_type = 4
+DEBUG:   value_type = 4
+DEBUG: Reading KV 2 of 4, pos=112
+DEBUG:   Key = general.file_type
+DEBUG:   value_type = 4
+DEBUG:   value_type = 4
+DEBUG: Reading KV 3 of 4, pos=145
+DEBUG:   Key = config
+DEBUG:   value_type = 8
+DEBUG:   value_type = 8
+DEBUG: Reading string value for key 'config'
+DEBUG: String value read successfully
+DEBUG: tensor_data_offset = 4927
+DEBUG: Reading tensor 0, pos=4927
+DEBUG: Tensor 0 name = audio_scale_shift_table
+DEBUG: Tensor 0 dtype = 2, pos = 4974
+DEBUG: Tensor 0 after dtype padding, pos = 4978
+DEBUG: Tensor 0 offset = 0, pos = 4986
+DEBUG: Tensor 0 after offset padding, pos = 4990
+DEBUG: Tensor 0 after dtype padding, pos = 4990
+DEBUG: Tensor 0 offset = 17, pos = 4998
+DEBUG: Tensor 0 after offset padding, pos = 5002
+DEBUG: Reading tensor 1, pos=5002
+memory allocation of 6878235133811580773 bytes failed
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
